@@ -1,92 +1,89 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Unity.Mathematics;
 using UnityEngine;
-using UnityEngine.Serialization;
+using static System.MathF;
+using Random = UnityEngine.Random;
 
 public class ParticleSpawner : MonoBehaviour
 {
+    [Header("Spawn Settings")]
+    public bool randomPosition;
     [Range(0, 100000)]
     public int numParticles;
-    [Range(0.0f, 1.0f)]
-    public float particleSpacing;
-    public Color particleColor = new Color(0.3011303f, 0.7340082f, 1);
-    public GameObject refParticle;
+    public Vector2 spawnCenter;
+    public Vector2 spawnSize;
+    public float spacing;
+    public Vector2 initialVelocity;
 
     [System.Serializable]
-    public struct SpawnData
+    public struct ParticlesData
     {
-        private Vector2[] positions;
-        private Vector2[] velocities;
-        [SerializeField] private float size;
-        public void InitPositions(int value)
-        {
-            positions = new Vector2[value];
-        }
+        public List<Vector2> positions;
+        public List<Vector2> velocities;
 
-        public void InitVelocities(int value)
+        public ParticlesData(int num)
         {
-            velocities = new Vector2[value];
-        }
-
-        public void SetSize(float value)
-        {
-            size = value;
+            positions = new List<Vector2>();
+            velocities = new List<Vector2>();
         }
         
-        public Vector2[] Positions => positions;
-        public Vector2[] Velocities => velocities;
-        public float Size => size;
-    };
-    
-    [SerializeField]
-    private SpawnData _particles;
-
-    public SpawnData GetSpawnData()
-    {
-        return _particles;
+        /*public ParticlesData(int num)
+        {
+            positions = new Vector2[num];
+            velocities = new Vector2[num];
+        }*/
     }
 
-    void Init()
+    public ParticlesData GetParticlesData()
     {
-        if (numParticles <= 0)
+        ParticlesData particlesData = new ParticlesData(numParticles);
+        if (randomPosition)
         {
-            numParticles = 1;
+            GetRandomPosition(ref particlesData);
         }
-
-        if (particleSpacing <= 0)
+        else
         {
-            particleSpacing = 0;
+            GetPosition(ref particlesData);
         }
-        // Create particle arrays
-        _particles.InitPositions(numParticles);
-        _particles.InitVelocities(numParticles);
-        // Place particles in a grid formation
-        int particlesPerRow = (int)Mathf.Sqrt(numParticles);
-        int particlesPerCol = (numParticles - 1) / particlesPerRow + 1;
-        float spacing = _particles.Size + particleSpacing;
-
         for (int i = 0; i < numParticles; i++)
         {
-            float x = (i % particlesPerRow - particlesPerRow / 2f + 0.5f) * spacing;
-            float y = (i / particlesPerRow - particlesPerCol / 2f + 0.5f) * spacing;
-            _particles.Positions[i] = new Vector2(x, y);
-            //particles[i] = Instantiate(refParticle, positions[i], Quaternion.identity);
+            float x = (Random.value - 0.5f);
+            float y = (Random.value - 0.5f);
+            particlesData.velocities.Add(initialVelocity);
+            //particlesData.velocities[i] = new Vector2(x, y);;
+        }
+        return particlesData;
+    }
+
+    void GetPosition(ref ParticlesData particlesData)
+    {
+        for (int idx = 0; idx < numParticles; idx++)
+        {
+            float particlesPerRow = (int)Sqrt(numParticles);
+            float particlesPerCol = (numParticles - 1) / particlesPerRow + 1;
+            float x = (idx % particlesPerRow - particlesPerRow / 2f + 0.5f) * spacing % spawnSize.x;
+            float y = (idx / particlesPerRow - particlesPerCol / 2f + 0.5f) * spacing % spawnSize.y;
+            particlesData.positions.Add(new Vector2(x, y) + spawnCenter);
         }
     }
 
-    private void OnValidate()
+    void GetRandomPosition(ref ParticlesData particlesData)
     {
-        Init();
+        for (int idx = 0; idx < numParticles; idx++)
+        {
+            float x = (Random.value - 0.5f) * spawnSize.x;
+            float y = (Random.value - 0.5f) * spawnSize.y;
+            particlesData.positions.Add(new Vector2(x, y) + spawnCenter);
+        }
     }
-
+    
     private void OnDrawGizmos()
     {
-        Gizmos.color = particleColor;
-        for (int i = 0; i < _particles.Positions.Length; i++)
-        {
-            //Gizmos.DrawSphere(positions[i], particleSize);
-            Vector2 scale = new Vector2(_particles.Size, _particles.Size);
-            Gizmos.DrawMesh(refParticle.GetComponent<MeshFilter>().sharedMesh, _particles.Positions[i], quaternion.identity,
-                scale);
-        }
+        // Draw Bounds
+        Gizmos.color = new Color(1, 1, 0.5f);
+        Gizmos.DrawWireCube(spawnCenter, spawnSize);
     }
 }

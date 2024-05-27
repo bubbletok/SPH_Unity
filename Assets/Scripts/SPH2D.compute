@@ -1,0 +1,191 @@
+#pragma kernel CalculateExternalForces
+#pragma kernel UpdateSpatialHash
+#pragma kernel CalculateDensities
+#pragma kernel CalculatePressureForce
+#pragma kernel UpdatePosition
+
+static const int NumThreads = 64;
+
+int numParticles;
+float smoothingRadius;
+float gravity;
+float collisionDamping;
+float deltaTime;
+float targetDensity;
+float pressureMultiplier;
+float particleMass;
+float2 boundsSize;
+RWStructuredBuffer<float2> positions;
+RWStructuredBuffer<float2> predictedPositions;
+RWStructuredBuffer<float2> velocities;
+RWStructuredBuffer<float> densities;
+RWStructuredBuffer<float2> pressureForces;
+RWStructuredBuffer<float2> SpatialLookup;
+RWStructuredBuffer<int> SpatialIndices;
+
+float Pow(float a, int n)
+{
+    float temp = a;
+    for(int i=0; i<n; i++)
+    {
+        temp *= a;
+    }
+    return temp;
+}
+
+float Max(float a, float b)
+{
+    return a >= b ? a : b;
+}
+
+float2 GetRandomDir(int idx)
+{
+    const float x = clamp(frac(sin(dot(idx,float2(12.9898,78.233)))*43758.5453123*deltaTime),-0.1,0.1);
+    const float y = clamp(frac(cos(dot(idx,float2(64.9898,32.512)))*12.5453123*deltaTime),-0.1,0.1);
+    return float2(x,y);
+}
+
+static float Smoothingkernel(float dist, float radius)
+{
+    if(dist >= radius) return 0;
+    
+    float volume = 3.141592653589793238462643383279502884197169 * Pow(radius, 4) / 6;
+    return (radius-dist)*(radius-dist)/volume;
+}
+
+static float SmoothingkernelDerivative(float dist, float radius)
+{
+    if(dist >= radius) return 0;
+    
+    const float scale = 12 / (3.141592653589793238462643383279502884197169 * Pow(radius, 4));
+    return (dist-radius) * scale;
+}
+
+int2 GetCellCoord(float2 pos, float radius)
+{
+    /*int x = (pos.x / radius);
+    int y = (pos.y / radius);
+    int cellX = (int)pos.x;
+    return int2(cellX, pos.x);*/
+    return (int2)floor(pos / radius);
+}
+
+uint GetHashKey(int2 pos)
+{
+    uint a = pos.x * 12312;
+    uint b = pos.y * 1029822;
+    return (a+b) % numParticles;
+}
+
+[numthreads(NumThreads,1,1)]
+void UpdateSpatialHash(uint3 id : SV_DispatchThreadID)
+{
+    if((int)id.x >= numParticles) return;
+
+    int idx = id.x;
+    int2 cell = GetCellCoord(predictedPositions[idx], smoothingRadius);
+    int hashKey = GetHashKey(cell);
+    SpatialLookup[id.x] = int2(cell.x, cell.y);
+    //SpatialLookup[id.x] = int2(idx, hashKey);
+    SpatialIndices[id.x] = numParticles;
+}
+
+[numthreads(NumThreads,1,1)]
+void CalculateExternalForces(uint id : SV_DispatchThreadID)
+{
+    // Add gravity force
+    velocities[id.x] += float2(0, -gravity) * deltaTime;
+
+    // Predict positions
+    predictedPositions[id.x] = positions[id.x] + velocities[id.x] * deltaTime;
+}
+
+float CalculateDensity(float2 pos)
+{
+    float density = 0;
+    for(int i=0; i<numParticles; i++)
+    {
+        float dist = distance(predictedPositions[i], pos);
+        float influence = Smoothingkernel(dist,smoothingRadius);
+        density += particleMass * influence;
+    }
+    return density;
+}
+
+[numthreads(NumThreads,1,1)]
+void CalculateDensities(uint3 id : SV_DispatchThreadID)
+{
+    if((int)id.x >= numParticles) return;
+    densities[id.x] = CalculateDensity(predictedPositions[id.x]);
+}
+
+float CalculatePressure(float density)
+{
+    float densityError = density - targetDensity;
+    float pressure = densityError * pressureMultiplier;
+    return pressure;
+}
+
+float CalculateSharedPressure(float densityA, float densityB)
+{
+    const float pressureA = CalculatePressure(densityA);
+    const float pressureB = CalculatePressure(densityB);
+    return (pressureA+pressureB)/2;
+}
+
+[numthreads(NumThreads,1,1)]
+void CalculatePressureForce(uint3 id : SV_DispatchThreadID)
+{
+    if((int)id.x >= numParticles) return;
+    const int particleIndex = id.x;
+    float2 force = float2(0,0);
+    for (int otherParticleIndex = 0; otherParticleIndex < numParticles; otherParticleIndex++)
+    {
+        if (particleIndex == otherParticleIndex) continue;
+        
+        float2 offset = predictedPositions[otherParticleIndex] - predictedPositions[particleIndex];
+        float dist = distance(predictedPositions[otherParticleIndex],predictedPositions[particleIndex]);
+        const float2 dir = dist == 0 ? GetRandomDir(id.x): offset / dist;
+        
+        const float slope = SmoothingkernelDerivative(dist, smoothingRadius);
+        const float density = densities[otherParticleIndex];
+        const float sharedPressure = CalculateSharedPressure(density, densities[particleIndex]);
+        //force += CalculatePressure(density) * dir * slope * particleMass / density;
+        force += sharedPressure * dir * slope * particleMass / density;
+    }
+    pressureForces[id.x] = force;
+    const float2 acceleration = force / densities[id.x];
+    velocities[id.x] += acceleration * deltaTime;
+}
+
+void ResolveCollisions(uint idx)
+{
+    float2 pos = positions[idx];
+    float2 vel = velocities[idx];
+    float2 halfBoundsSize = boundsSize / 2;
+    float2 edgeDst = halfBoundsSize - abs(pos);
+    
+    if (edgeDst.x <= 0)
+    {
+        pos.x = halfBoundsSize.x * sign(pos.x);
+        vel.x *= -1 * collisionDamping;
+    }
+    if (edgeDst.y <= 0)
+    {
+        pos.y = halfBoundsSize.y * sign(pos.y);
+        vel.y *= -1 * collisionDamping;
+    }
+    
+    positions[idx] = pos;
+    velocities[idx] = vel;    
+}
+
+[numthreads(NumThreads,1,1)]
+void UpdatePosition(uint id : SV_DispatchThreadID)
+{
+    if((int)id.x >= numParticles) return;
+    positions[id.x] += velocities[id.x] * deltaTime;
+    ResolveCollisions(id.x);
+}
+
+
