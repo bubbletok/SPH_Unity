@@ -21,20 +21,24 @@ public class ParticleDisplay : MonoBehaviour
     private bool bCanDraw;
     public void Init(SPH2D sph)
     {
-        material = new Material(shader);
-        material.SetBuffer("Positions2D", sph.positionBuffer);
-        material.SetBuffer("Velocities", sph.velocityBuffer);
-        material.SetBuffer("Densities", sph.densityBuffer);
-
-        argsBuffer = CreateArgBuffer(mesh, sph.positionBuffer.count);
+        InitData(sph);
+        
         bounds = new Bounds(Vector3.zero, Vector3.one * 10000);
 
         bCanDraw = true;
 
         //sph.onReset.AddListener(ReleaseBuffers);
-
     }
 
+    void InitData(SPH2D sph)
+    {
+        material = new Material(shader);
+
+        ResetBufferData(sph);
+
+        argsBuffer = CreateArgBuffer(mesh, sph.numParticles);
+    }
+    
     public void Update()
     {
         if (bNeedUpdate)
@@ -107,12 +111,23 @@ public class ParticleDisplay : MonoBehaviour
         return argBuffer;
     }
 
-    public void Reset()
+    public void Reset(SPH2D sph)
     {
         bCanDraw = false;
-        material = null;
         ReleaseBuffers();
+        material = null;
+        InitData(sph);
+        UpdateSettings();
+        bCanDraw = true;
     }
+    
+    public void ResetBufferData(SPH2D sph)
+    {
+        material.SetBuffer("Positions2D", sph.positionBuffer);
+        material.SetBuffer("Velocities", sph.velocityBuffer);
+        material.SetBuffer("Densities", sph.densityBuffer);
+    }
+
     
     void OnDestroy()
     {

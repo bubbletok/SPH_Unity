@@ -11,7 +11,9 @@ public class ParticleSpawner : MonoBehaviour
 {
     [Header("Spawn Settings")]
     public bool randomPosition;
-    [Range(0, 100000)]
+    [Range(1, 100000)]
+    public int maxNumParticles;
+    [Range(1, 100000)]
     public int numParticles;
     public Vector2 spawnCenter;
     public Vector2 spawnSize;
@@ -39,6 +41,7 @@ public class ParticleSpawner : MonoBehaviour
 
     public ParticlesData GetParticlesData()
     {
+        numParticles = numParticles > maxNumParticles ? maxNumParticles : numParticles;
         ParticlesData particlesData = new ParticlesData(numParticles);
         if (randomPosition)
         {

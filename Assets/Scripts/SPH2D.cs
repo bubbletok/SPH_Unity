@@ -4,10 +4,11 @@ using UnityEngine.Serialization;
 
 public class SPH2D : MonoBehaviour
 {
-    [FormerlySerializedAs("runSimulationByFrame")] [FormerlySerializedAs("runSimulationByStep")] [Header("SPH2D Settings")]
+    [Header("SPH2D Settings")]
     public bool runSimulationByFixedFrame;
     public int iterationsPerFrame;
     public int timeScale;
+    public int maxNumParticles;
     [Range(0, 50)]
     public float gravity;
     [Range(0, 1)]
@@ -28,7 +29,8 @@ public class SPH2D : MonoBehaviour
     public DensityDisplay densityDisplay;
     
     private ParticleSpawner.ParticlesData particles;
-    private int numParticles;
+    [HideInInspector]
+    public int numParticles;
     
     public ComputeBuffer positionBuffer { get; private set; }
     public ComputeBuffer predictedPositoinBuffer { get; private set; }
@@ -71,7 +73,9 @@ public class SPH2D : MonoBehaviour
     void Init()
     {
         isPaused = true;
-        particles = particleSpawner.GetParticlesData();
+        
+        SpawnParticle();
+        
         /*positions = particles.positions;
         velocities = particles.velocities;*/
         
@@ -86,6 +90,13 @@ public class SPH2D : MonoBehaviour
         
         particleDisplay.Init(this);
         densityDisplay.Init(this);
+    }
+
+    void SpawnParticle()
+    {
+        particles = particleSpawner.GetParticlesData();
+        numParticles = particles.positions.Count;
+        numParticles = numParticles > maxNumParticles ? maxNumParticles : numParticles;
     }
 
     void SetProperty(float deltaTime)
@@ -104,13 +115,13 @@ public class SPH2D : MonoBehaviour
 
     void CreateInitialBuffer()
     {
-        positionBuffer = new ComputeBuffer(numParticles, sizeof(float) * 2);
-        predictedPositoinBuffer = new ComputeBuffer(numParticles, sizeof(float) * 2);
-        velocityBuffer = new ComputeBuffer(numParticles, sizeof(float) * 2);
-        densityBuffer = new ComputeBuffer(numParticles, sizeof(float));
-        pressureForceBuffer = new ComputeBuffer(numParticles, sizeof(float) * 2);
-        spatialLookupBuffer = new ComputeBuffer(numParticles, sizeof(int) * 2);
-        spatialIndicesBuffer = new ComputeBuffer(numParticles, sizeof(int));
+        positionBuffer = new ComputeBuffer(maxNumParticles, sizeof(float) * 2);
+        predictedPositoinBuffer = new ComputeBuffer(maxNumParticles, sizeof(float) * 2);
+        velocityBuffer = new ComputeBuffer(maxNumParticles, sizeof(float) * 2);
+        densityBuffer = new ComputeBuffer(maxNumParticles, sizeof(float));
+        pressureForceBuffer = new ComputeBuffer(maxNumParticles, sizeof(float) * 2);
+        spatialLookupBuffer = new ComputeBuffer(maxNumParticles, sizeof(int) * 2);
+        spatialIndicesBuffer = new ComputeBuffer(maxNumParticles, sizeof(int));
     }
 
     void ResetBufferData()
@@ -119,7 +130,7 @@ public class SPH2D : MonoBehaviour
         predictedPositoinBuffer.SetData(particles.positions);
         velocityBuffer.SetData(particles.velocities);
         
-        positions = new Vector2[numParticles];
+        //positions = new Vector2[numParticles];
         /*velocities = new Vector2[numParticles];
         densities = new float[numParticles];
         forces = new Vector2[numParticles];*/
@@ -218,6 +229,9 @@ public class SPH2D : MonoBehaviour
             ReleaseBuffers();
             CreateInitialBuffer();*/
             ResetBufferData();
+            SpawnParticle();
+            SetProperty(1/60f);
+            particleDisplay.Reset(this);
             //SetBuffers();
             SimulationStep();
             ResetBufferData();
