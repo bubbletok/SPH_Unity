@@ -123,9 +123,9 @@ public class ParticleDisplay : MonoBehaviour
     
     public void ResetBufferData(SPH2D sph)
     {
-        material.SetBuffer("Positions2D", sph.positionBuffer);
-        material.SetBuffer("Velocities", sph.velocityBuffer);
-        material.SetBuffer("Densities", sph.densityBuffer);
+        material.SetBuffer("Positions2D", sph.PositionBuffer);
+        material.SetBuffer("Velocities", sph.VelocityBuffer);
+        material.SetBuffer("Densities", sph.DensityBuffer);
     }
 
     

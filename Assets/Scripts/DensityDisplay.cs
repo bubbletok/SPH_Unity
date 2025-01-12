@@ -35,10 +35,10 @@ public class DensityDisplay : MonoBehaviour
         allPositionBuffer.SetData(allPosition);*/
         
         material = new Material(shader);
-        material.SetBuffer("Positions2D", sph.positionBuffer);
-        material.SetBuffer("Densities", sph.densityBuffer);
+        material.SetBuffer("Positions2D", sph.PositionBuffer);
+        material.SetBuffer("Densities", sph.DensityBuffer);
 
-        argsBuffer = CreateArgBuffer(mesh, sph.positionBuffer.count);
+        argsBuffer = CreateArgBuffer(mesh, sph.PositionBuffer.count);
         bounds = new Bounds(Vector3.zero, Vector3.one * 10000);
 
         bCanDraw = true;

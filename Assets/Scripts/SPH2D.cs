@@ -1,9 +1,18 @@
-using System.Linq;
 using UnityEngine;
-using UnityEngine.Serialization;
 
 public class SPH2D : MonoBehaviour
 {
+    private static readonly int NumParticles = Shader.PropertyToID("numParticles");
+    private static readonly int SmoothingRadius = Shader.PropertyToID("smoothingRadius");
+    private static readonly int Gravity = Shader.PropertyToID("gravity");
+    private static readonly int CollisionDamping = Shader.PropertyToID("collisionDamping");
+    private static readonly int DeltaTime = Shader.PropertyToID("deltaTime");
+    private static readonly int TargetDensity = Shader.PropertyToID("targetDensity");
+    private static readonly int PressureMultiplier = Shader.PropertyToID("pressureMultiplier");
+    private static readonly int NearPressureMultiplier = Shader.PropertyToID("nearPressureMultiplier");
+    private static readonly int ParticleMass = Shader.PropertyToID("particleMass");
+    private static readonly int BoundsSize = Shader.PropertyToID("boundsSize");
+
     [Header("SPH2D Settings")]
     public bool runSimulationByFixedFrame;
     public int iterationsPerFrame;
@@ -19,6 +28,8 @@ public class SPH2D : MonoBehaviour
     public float targetDensity;
     [Range(0, 1000)]
     public float pressureMultiplier;
+    [Range(0, 1000)]
+    public float nearPressureMultiplier;
     [Range(0, 100)]
     public float particleMass;
     public Vector2 boundsSize;
@@ -32,13 +43,16 @@ public class SPH2D : MonoBehaviour
     [HideInInspector]
     public int numParticles;
     
-    public ComputeBuffer positionBuffer { get; private set; }
-    public ComputeBuffer predictedPositoinBuffer { get; private set; }
-    public ComputeBuffer velocityBuffer { get; private set; }
-    public ComputeBuffer densityBuffer { get; private set; }
-    public ComputeBuffer pressureForceBuffer { get; private set; }
-    public ComputeBuffer spatialLookupBuffer { get; private set; }
-    public ComputeBuffer spatialIndicesBuffer { get; private set; }
+    public ComputeBuffer PositionBuffer { get; private set; }
+    public ComputeBuffer PredictedPositoinBuffer { get; private set; }
+    public ComputeBuffer VelocityBuffer { get; private set; }
+    public ComputeBuffer DensityBuffer { get; private set; }
+    public ComputeBuffer PressureForceBuffer { get; private set; }
+    public ComputeBuffer SpatialIndicesBuffer { get; private set; }
+    public ComputeBuffer SpatialOffsetsBuffer { get; private set; }
+
+    private GPUSort gpuSort;
+    
 
     //public UnityEvent onReset;
     
@@ -51,14 +65,8 @@ public class SPH2D : MonoBehaviour
     private bool isPaused;
     private bool isNextFrame;
     
-    public Vector2[] positions;
-    public Vector2[] velocities;
-
-    [Header("Debug variables")]
-    /*public float[] densities;
-    public Vector2[] forces;*/
-    public Vector2[] spatialLookup;
-    public int[] spatialIndices;
+    /*public Vector2[] positions;
+    public Vector2[] velocities;*/
 
     private void Awake()
     {
@@ -90,6 +98,9 @@ public class SPH2D : MonoBehaviour
         
         particleDisplay.Init(this);
         densityDisplay.Init(this);
+        
+        gpuSort = new();
+        gpuSort.SetBuffers(SpatialIndicesBuffer, SpatialOffsetsBuffer);
     }
 
     void SpawnParticle()
@@ -102,33 +113,34 @@ public class SPH2D : MonoBehaviour
     void SetProperty(float deltaTime)
     {   
         numParticles = particles.positions.Count;
-        shader.SetInt("numParticles", numParticles);
-        shader.SetFloat("smoothingRadius", smoothingRadius);
-        shader.SetFloat("gravity", gravity);
-        shader.SetFloat("collisionDamping", collisionDamping);
-        shader.SetFloat("deltaTime", deltaTime);
-        shader.SetFloat("targetDensity",targetDensity);
-        shader.SetFloat("pressureMultiplier",pressureMultiplier);
-        shader.SetFloat("particleMass",particleMass);
-        shader.SetVector("boundsSize", boundsSize);
+        shader.SetInt(NumParticles, numParticles);
+        shader.SetFloat(SmoothingRadius, smoothingRadius);
+        shader.SetFloat(Gravity, gravity);
+        shader.SetFloat(CollisionDamping, collisionDamping);
+        shader.SetFloat(DeltaTime, deltaTime);
+        shader.SetFloat(TargetDensity,targetDensity);
+        shader.SetFloat(PressureMultiplier,pressureMultiplier);
+        shader.SetFloat(NearPressureMultiplier,nearPressureMultiplier);
+        shader.SetFloat(ParticleMass,particleMass);
+        shader.SetVector(BoundsSize, boundsSize);
     }
 
     void CreateInitialBuffer()
     {
-        positionBuffer = new ComputeBuffer(maxNumParticles, sizeof(float) * 2);
-        predictedPositoinBuffer = new ComputeBuffer(maxNumParticles, sizeof(float) * 2);
-        velocityBuffer = new ComputeBuffer(maxNumParticles, sizeof(float) * 2);
-        densityBuffer = new ComputeBuffer(maxNumParticles, sizeof(float));
-        pressureForceBuffer = new ComputeBuffer(maxNumParticles, sizeof(float) * 2);
-        spatialLookupBuffer = new ComputeBuffer(maxNumParticles, sizeof(int) * 2);
-        spatialIndicesBuffer = new ComputeBuffer(maxNumParticles, sizeof(int));
+        PositionBuffer = new ComputeBuffer(maxNumParticles, sizeof(float) * 2);
+        PredictedPositoinBuffer = new ComputeBuffer(maxNumParticles, sizeof(float) * 2);
+        VelocityBuffer = new ComputeBuffer(maxNumParticles, sizeof(float) * 2);
+        DensityBuffer = new ComputeBuffer(maxNumParticles, sizeof(float));
+        PressureForceBuffer = new ComputeBuffer(maxNumParticles, sizeof(float) * 2);
+        SpatialIndicesBuffer = new ComputeBuffer(maxNumParticles, sizeof(int) * 3);
+        SpatialOffsetsBuffer = new ComputeBuffer(maxNumParticles, sizeof(int));
     }
 
     void ResetBufferData()
     {
-        positionBuffer.SetData(particles.positions);
-        predictedPositoinBuffer.SetData(particles.positions);
-        velocityBuffer.SetData(particles.velocities);
+        PositionBuffer.SetData(particles.positions);
+        PredictedPositoinBuffer.SetData(particles.positions);
+        VelocityBuffer.SetData(particles.velocities);
         
         //positions = new Vector2[numParticles];
         /*velocities = new Vector2[numParticles];
@@ -140,13 +152,13 @@ public class SPH2D : MonoBehaviour
 
     void SetBuffers()
     {
-        SetComputeShaderBuffers(shader, positionBuffer, "positions", CalculateExternalForces, UpdatePosition);
-        SetComputeShaderBuffers(shader, predictedPositoinBuffer, "predictedPositions",  UpdateSpatialHash, CalculateExternalForces, CalculateDensity, CalculatePressureForce);
-        SetComputeShaderBuffers(shader, velocityBuffer, "velocities", CalculateExternalForces, CalculatePressureForce, UpdatePosition);
-        SetComputeShaderBuffers(shader, densityBuffer, "densities", CalculateDensity, CalculatePressureForce);
-        SetComputeShaderBuffers(shader, pressureForceBuffer,"pressureForces",CalculatePressureForce);
-        SetComputeShaderBuffers(shader, spatialLookupBuffer, "SpatialLookup", UpdateSpatialHash);
-        SetComputeShaderBuffers(shader, spatialIndicesBuffer, "SpatialIndices", UpdateSpatialHash);
+        SetComputeShaderBuffers(shader, PositionBuffer, "positions", CalculateExternalForces, UpdatePosition);
+        SetComputeShaderBuffers(shader, PredictedPositoinBuffer, "predictedPositions",  UpdateSpatialHash, CalculateExternalForces, CalculateDensity, CalculatePressureForce);
+        SetComputeShaderBuffers(shader, VelocityBuffer, "velocities", CalculateExternalForces, CalculatePressureForce, UpdatePosition);
+        SetComputeShaderBuffers(shader, DensityBuffer, "densities", CalculateDensity, CalculatePressureForce);
+        SetComputeShaderBuffers(shader, PressureForceBuffer,"pressureForces",CalculatePressureForce);
+        SetComputeShaderBuffers(shader, SpatialIndicesBuffer, "SpatialIndices", UpdateSpatialHash);
+        //SetComputeShaderBuffers(shader, SpatialOffsetsBuffer, "SpatialOffsets", UpdateSpatialHash);
     }
 
     void SetComputeShaderBuffers(ComputeShader computeShader, ComputeBuffer buffer, string id, params int[] kernels)
@@ -195,11 +207,13 @@ public class SPH2D : MonoBehaviour
     {
         shader.Dispatch(CalculateExternalForces, numParticles, 1, 1);
         shader.Dispatch(UpdateSpatialHash, numParticles, 1, 1);
+        //gpuSort.SortAndCalculateOffsets();
+        
         shader.Dispatch(CalculateDensity, numParticles, 1, 1);
         shader.Dispatch(CalculatePressureForce, numParticles, 1, 1);
         shader.Dispatch(UpdatePosition, numParticles, 1, 1);
         
-        positionBuffer.GetData(positions);
+        //positionBuffer.GetData(positions);
         
         //predictedPositoinBuffer.GetData(positions);
         /*velocityBuffer.GetData(velocities);
@@ -271,13 +285,13 @@ public class SPH2D : MonoBehaviour
 
     void ReleaseBuffers()
     {
-        if(positionBuffer!=null) positionBuffer.Release();
-        if(predictedPositoinBuffer!=null) predictedPositoinBuffer.Release();
-        if(velocityBuffer!=null) velocityBuffer.Release();
-        if(densityBuffer!=null) densityBuffer.Release();
-        if(pressureForceBuffer!=null) pressureForceBuffer.Release();
-        if(spatialLookupBuffer!=null) spatialLookupBuffer.Release();
-        if(spatialIndicesBuffer!=null) spatialIndicesBuffer.Release();
+        PositionBuffer?.Release();
+        PredictedPositoinBuffer?.Release();
+        VelocityBuffer?.Release();
+        DensityBuffer?.Release();
+        PressureForceBuffer?.Release();
+        SpatialIndicesBuffer?.Release();
+        SpatialOffsetsBuffer?.Release();
     }
     
     private void OnDrawGizmos()

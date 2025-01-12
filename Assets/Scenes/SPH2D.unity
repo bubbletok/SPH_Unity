@@ -304,21 +304,20 @@ MonoBehaviour:
   runSimulationByFixedFrame: 1
   iterationsPerFrame: 3
   timeScale: 1
-  gravity: 6
-  collisionDamping: 0.5
+  maxNumParticles: 50000
+  gravity: 10
+  collisionDamping: 0.6
   smoothingRadius: 0.35
-  targetDensity: 10
-  pressureMultiplier: 30
+  targetDensity: 70
+  pressureMultiplier: 50
+  nearPressureMultiplier: 50
   particleMass: 1
   boundsSize: {x: 20, y: 20}
   shader: {fileID: 7200000, guid: a8f05aadf88789547ae50b0f51b5e53e, type: 3}
   particleSpawner: {fileID: 1693635696}
   particleDisplay: {fileID: 1693635693}
   densityDisplay: {fileID: 1693635697}
-  positions: []
-  velocities: []
-  spatialLookup: []
-  spatialIndices: 
+  numParticles: 0
 --- !u!114 &1693635696
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -332,7 +331,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   randomPosition: 0
-  numParticles: 4032
+  maxNumParticles: 10000
+  numParticles: 10000
   spawnCenter: {x: 3.59, y: 2.54}
   spawnSize: {x: 10, y: 10}
   spacing: 0.1
